@@ -1,0 +1,172 @@
+module atm_fsm(input clk,rst,insertcard,cardscan,acc_unlocked,deposit,withdraw,
+                amt_entered,valid_transaction,transaction_verified,more_transaction,
+                input[3:0]PIN,input[15:0]amount,output reg z);
+
+reg[1:0]ipin_count;
+parameter[3:0] scan_card=4'b0000,
+		scan_line=4'b0001,
+		storing_info=4'b0010,
+		enter_pin=4'b0011,
+		count=4'b0100,
+		transaction_type=4'b0110,
+		enter_deposit_amt=4'b0111,
+		dep_check=4'b1000,
+		invalid=4'b1001,
+		anything_else=4'b1010,
+		dep_verify=4'b1011,
+		updating_balance=4'b1100,
+		enter_wd_amount=4'b1101,
+		wd_check=4'b1110,
+		wd_verify=4'b1111;
+
+ reg[3:0]state,next;
+ reg[3:0]cardPIN=4'b1111;
+ reg[15:0]balance=16'b0001111111111000;
+
+
+	 always @(posedge clk)
+	  begin
+		if(rst)begin
+		  state<=scan_card;
+	  end
+		else
+		  state<=next;
+	  end
+
+
+	always @(negedge clk)
+	   begin
+		case(state)
+		  scan_card  :	if(insertcard)
+				   next=scan_line;
+				else begin
+				   next=scan_card;
+				   ipin_count=2'b0;
+				end
+	 	 scan_line   :  if(cardscan)
+				   next=storing_info;
+				else begin
+				   next=scan_card;
+				   ipin_count=2'b0;
+				end
+		storing_info :  if(acc_unlocked)
+				   next=enter_pin;
+				else begin
+				   next=scan_card;
+				   ipin_count=2'b0;
+				end
+		enter_pin    :	if(PIN==cardPIN)
+				   next=transaction_type;
+				else begin
+				   ipin_count=ipin_count+1;
+				   next=count;
+				end
+		count	     :
+				begin
+				if(PIN==cardPIN)
+				   next=transaction_type;
+				else
+				if(ipin_count!=3)
+				begin
+				   ipin_count=ipin_count+1;
+				   next=count;
+				end
+				else begin
+				   next=scan_card;
+				   ipin_count=2'b0;
+				end
+				end
+	transaction_type    :   if(deposit)
+				   next=enter_deposit_amt;
+				else if(withdraw)
+				   next=enter_wd_amount;
+	enter_deposit_amt   :	if(amt_entered)
+				   next=dep_check;
+				else
+				   next=transaction_type;
+	dep_check	    :   if(amount<=(~balance))
+				   next=dep_verify;
+				else
+				   next=invalid;
+	invalid	    	    :	   next=anything_else;
+	anything_else	    :	if(more_transaction)
+				   next=transaction_type;
+				else begin
+				   next=scan_card;
+				   ipin_count=2'b0;
+				end
+	dep_verify	   :	if(transaction_verified)
+			        begin
+				  balance=balance+amount;
+				  next=updating_balance;
+				end
+				else
+				  next=dep_verify;
+         updating_balance   :     next=anything_else;
+         enter_wd_amount    :      if(amt_entered)
+                                     next  =   wd_check;
+                                   else
+                                     next  =   transaction_type;
+          wd_check          :      if(amount<=balance&&balance>=1'd0)
+                                      next  =  wd_verify;
+                                   else
+                                      next   =  invalid;
+          wd_verify         :     if(transaction_verified)
+                                   begin
+                                      balance  =  balance-amount;
+                                       next  =  updating_balance;
+                                    end
+                                   else
+                                       next  =  wd_verify;
+          default         :       begin
+                                    next    =   scan_card;
+                                     ipin_count   =  2'b0;
+                                   end
+                 endcase
+          end
+      always @  (state)
+        begin
+           case(state)
+               updating_balance   :  z  = 1;
+               default         :     z  = 0;
+           endcase
+         end
+ endmodule
+/////////////////////////////////////////////////
+  module atm_tb;
+      reg clk,rst,insertcard,cardscan,acc_unlocked,deposit,withdraw,
+           amt_entered,valid_transaction,transaction_verified,more_transaction;
+   reg [3:0] PIN;
+   reg [15:0] amount;
+   wire  z;
+                atm_fsm atm1(clk,rst,insertcard,cardscan,acc_unlocked,deposit,withdraw,
+                  amt_entered,valid_transaction,transaction_verified,more_transaction,
+                    PIN,amount,z);
+   initial 
+     begin
+        $monitor("@%0d ns rst=%b insertcard=%b cardscan=%b,acc_unlocked=%b,deposit=%b withdraw=%b amt_entered=%b valid_transaction=%b transaction_verified=%b more_transaction=%b",
+                   $time,rst,insertcard,cardscan,acc_unlocked,deposit,withdraw,amt_entered,valid_transaction,transaction_verified,more_transaction);
+        $display("@%0d ns diriving all input to know state",$time);
+                 clk=0;rst=1;insertcard=0;cardscan=0;acc_unlocked=0;deposit=0;withdraw=0;
+                      amt_entered=0;valid_transaction=0;transaction_verified=0;more_transaction=0;
+                  #40 rst=0;
+                  $display("@%0d ns insert the card",$time);
+                  #40 insertcard=1;
+                  #40  cardscan=1;
+                  #40 acc_unlocked=1;
+                  #40 PIN = 4'b1111;
+                  #40 deposit=1;
+                  #40 amount=16'b0001111111111000;
+                  #40 withdraw=1;
+                  #40 amt_entered=1;
+                  #40 valid_transaction=1;
+                  #40 transaction_verified=1;
+                  #40 more_transaction=1;
+
+
+
+
+
+       end
+         always #10 clk=~clk;
+  endmodule
